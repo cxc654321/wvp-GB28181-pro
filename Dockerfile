@@ -47,7 +47,10 @@ FROM ubuntu:24.04
 
 ENV TZ=Asia/Shanghai \
     LANG=C.UTF-8 \
-    DEBIAN_FRONTEND=noninteractive
+    DEBIAN_FRONTEND=noninteractive \
+    Stream_IP=10.20.41.236 \
+    SDP_IP=10.20.41.236 \
+    SIP_ShowIP=10.20.41.236
 
 # 阻止 apt 安装阶段自动启动服务
 RUN printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d && chmod +x /usr/sbin/policy-rc.d
@@ -59,6 +62,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         redis-server \
         nginx \
         ffmpeg \
+        python3 \
         libssl-dev \
         curl \
         gettext-base \

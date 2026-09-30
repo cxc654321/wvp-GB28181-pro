@@ -19,7 +19,7 @@ log() { echo "[all-in-one] $*"; }
 # ------------------------------------------------------------------
 # 1. 渲染 nginx 站点配置（替换 ${Stream_IP}）
 # ------------------------------------------------------------------
-export Stream_IP="${Stream_IP:-127.0.0.1}"
+export Stream_IP="${Stream_IP:-10.20.41.236}"
 if [ -f /etc/nginx/templates/all-in-one.conf.template ]; then
     envsubst '${Stream_IP}' \
         < /etc/nginx/templates/all-in-one.conf.template \
