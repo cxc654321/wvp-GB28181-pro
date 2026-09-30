@@ -2,8 +2,7 @@ name: release-ubuntu
 
 on:
   push:
-    tags:
-      - "v*.*.*" # 触发条件是推送标签 如git tag v2.7.4 git push origin v2.7.4
+    branches: [ master ]
 
 jobs:
   build-ubuntu:
