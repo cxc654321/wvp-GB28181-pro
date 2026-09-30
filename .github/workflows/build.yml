@@ -1,9 +1,9 @@
-name: build-all-in-one-arm64
+name: build-and-push-arm64
 
 on:
   push:
     branches: [ master ]
-    tags: [ '*' ]
+    tags: [ 'v*' ]
   workflow_dispatch:
 
 env:
@@ -11,9 +11,9 @@ env:
   IMAGE_NAME: ${{ github.repository }}/wvp-all-in-one
 
 jobs:
-  build-and-push:
+  build:
     runs-on: ubuntu-24.04-arm        # 公开仓库可用，原生 ARM64
-    timeout-minutes: 360             # 一体化镜像编译慢，给足 6 小时
+    timeout-minutes: 60             
     permissions:
       contents: read
       packages: write
@@ -43,11 +43,11 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
 
-      - name: Build and push ARM64 all-in-one image
-        uses: docker/build-push-action@v5
+      - name: Build and push ARM64 image
+        uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./Dockerfile
+          file: ./Dockerfile          # 按实际路径调整，如 ./docker/wvp/Dockerfile
           platforms: linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
