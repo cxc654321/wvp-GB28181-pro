@@ -1,72 +1,113 @@
 # syntax=docker/dockerfile:1
 
 # ============================================================
-# Stage 1: 编译前端（独立 node 环境，自带 npm）
+# WVP-GB28181-pro 一体化镜像
+# 包含：前端静态资源 + WVP(本体) + ZLMediaKit + MySQL + Redis + Nginx
+# 构建产物可直接 docker run，无需再依赖 compose
 # ============================================================
-FROM arm64v8/node:20 AS frontend-builder
+
+# ------------------------------------------------------------
+# Stage 1: 编译前端
+# web/vue.config.js 里 outputDir = ../src/main/resources/static
+# ------------------------------------------------------------
+FROM node:20 AS frontend-builder
 
 WORKDIR /src
 
-# 复制前端依赖清单，先安装依赖（利用缓存）
+# 先装依赖，利用构建缓存
 COPY web/package*.json ./web/
-RUN cd web && npm install --registry=https://registry.npmmirror.com
+RUN cd web && npm install --registry=https://registry.npmmirror.com --legacy-peer-deps
 
-# 复制前端源码并构建
+# 复制源码并构建（webpack4 在 node17+ 需要 legacy provider）
 COPY web/ ./web/
-RUN cd web && npm run build:prod
+RUN cd web && NODE_OPTIONS="--max-old-space-size=4096 --openssl-legacy-provider" npm run build:prod
 
-# ============================================================
-# Stage 2: 编译后端（maven 环境，注入前端产物）
-# ============================================================
-FROM arm64v8/maven:3.9-eclipse-temurin-21 AS wvp-builder
+# ------------------------------------------------------------
+# Stage 2: 编译后端，并把前端产物注入静态资源目录
+# ------------------------------------------------------------
+FROM maven:3.9-eclipse-temurin-21 AS wvp-builder
 
 WORKDIR /src
 COPY . /src
 
-# 把前端产物复制到后端静态资源目录
-# 默认假设前端输出目录为 web/dist/，如果实际不是，需要改
-COPY --from=frontend-builder /src/web/dist/ /src/src/main/resources/static/
+# 前端产物覆盖到后端静态目录
+COPY --from=frontend-builder /src/src/main/resources/static/ /src/src/main/resources/static/
 
 RUN mvn clean package -Dmaven.test.skip=true -Dmaven.javadoc.skip=true
 
-# ============================================================
-# Stage 3: 一体化运行镜像
-# 基于官方 ZLMediaKit ARM64 镜像（已确认支持 linux/arm64）
-# ============================================================
-FROM zlmediakit/zlmediakit:master
+# ------------------------------------------------------------
+# Stage 3: 从官方镜像取出 ZLMediaKit 运行文件
+# ------------------------------------------------------------
+FROM zlmediakit/zlmediakit:master AS zlm
 
-USER root
+# ------------------------------------------------------------
+# Stage 4: 一体化运行镜像 (Ubuntu 24.04，自带 openjdk-21 / mysql / redis / nginx)
+# ------------------------------------------------------------
+FROM ubuntu:24.04
 
-# 安装运行时依赖
+ENV TZ=Asia/Shanghai \
+    LANG=C.UTF-8 \
+    DEBIAN_FRONTEND=noninteractive
+
+# 阻止 apt 安装阶段自动启动服务
+RUN printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d && chmod +x /usr/sbin/policy-rc.d
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openjdk-21-jre-headless \
-    supervisor \
-    mysql-server \
-    redis-server \
-    nginx \
-    ffmpeg \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+        openjdk-21-jre-headless \
+        supervisor \
+        mysql-server \
+        redis-server \
+        nginx \
+        ffmpeg \
+        libssl-dev \
+        curl \
+        gettext-base \
+        ca-certificates \
+        tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -f /usr/sbin/policy-rc.d \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
+    && echo $TZ > /etc/timezone
 
-# 创建必要目录
-RUN mkdir -p /opt/wvp /opt/polaris/redis \
-    /etc/nginx/templates /var/lib/mysql /var/lib/redis \
-    /var/log/supervisor /var/log/nginx \
-    /docker-entrypoint-initdb.d
+# ZLMediaKit 运行文件（MediaServer / default.pem / www）
+COPY --from=zlm /opt/media /opt/media
+# 覆盖为一体化配置：hook 指向本机 WVP，端口与 WVP 配置保持一致
+COPY docker/all-in-one/media/config.ini /opt/media/conf/config.ini
 
-# 从构建阶段复制 WVP JAR
+# 必要的运行目录
+RUN mkdir -p /opt/wvp/config /opt/dist /opt/polaris/redis \
+        /etc/nginx/templates /var/lib/mysql /var/run/mysqld /var/log/mysql \
+        /var/log/supervisor /var/log/nginx /docker-entrypoint-initdb.d
+
+# WVP 本体
 COPY --from=wvp-builder /src/target/*.jar /opt/wvp/wvp.jar
+# WVP 运行配置（profile=docker，全部通过环境变量注入）
+COPY docker/wvp/wvp/application.yml        /opt/wvp/config/application.yml
+COPY docker/wvp/wvp/application-docker.yml /opt/wvp/config/application-docker.yml
 
-# 复制配置文件（路径按你仓库实际结构调整）
-COPY docker/redis/conf/redis.conf  /opt/polaris/redis/redis.conf
-COPY docker/nginx/templates/       /etc/nginx/templates/
+# 前端静态资源交给 nginx 托管
+COPY --from=frontend-builder /src/src/main/resources/static/ /opt/dist/
+
+# Redis 配置
+COPY docker/redis/conf/redis.conf /opt/polaris/redis/redis.conf
+# Nginx 站点模板（entrypoint 用 envsubst 渲染）
+COPY docker/all-in-one/nginx.conf.template /etc/nginx/templates/all-in-one.conf.template
+# MySQL 初始化 SQL
 COPY 数据库/2.7.4/初始化-mysql-2.7.4.sql /docker-entrypoint-initdb.d/init.sql
-
-# 复制 Supervisor 配置
+# Supervisor 与入口脚本
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY docker/all-in-one/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-EXPOSE 18978 8116/tcp 8116/udp \
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
+    && rm -f /etc/nginx/sites-enabled/default \
+    && chown -R mysql:mysql /var/lib/mysql /var/run/mysqld /var/log/mysql
+
+# 数据持久化目录
+VOLUME ["/var/lib/mysql", "/opt/media/bin/www/record"]
+
+# web(nginx) / wvp / sip / rtmp / rtsp / rtp / rtc / srt
+EXPOSE 8080 18978 8116/tcp 8116/udp \
        10935/tcp 10935/udp 5540/tcp 5540/udp \
-       10000/tcp 10000/udp 8080
+       10000/tcp 10000/udp 8000/tcp 8000/udp 9000/udp
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
