@@ -7,7 +7,7 @@ FROM arm64v8/node:20 AS frontend-builder
 
 WORKDIR /src
 
-# 先复制 package.json，利用缓存
+# 复制前端依赖清单，先安装依赖（利用缓存）
 COPY web/package*.json ./web/
 RUN cd web && npm install --registry=https://registry.npmmirror.com
 
@@ -16,49 +16,28 @@ COPY web/ ./web/
 RUN cd web && npm run build:prod
 
 # ============================================================
-# Stage 2: 编译后端（maven 环境）
+# Stage 2: 编译后端（maven 环境，注入前端产物）
 # ============================================================
 FROM arm64v8/maven:3.9-eclipse-temurin-21 AS wvp-builder
 
 WORKDIR /src
 COPY . /src
 
-# 把前端产物塞进后端静态资源目录
-# 注意：如果你的前端输出目录不是 dist/，把下面的 dist 改成实际目录
+# 把前端产物复制到后端静态资源目录
+# 默认假设前端输出目录为 web/dist/，如果实际不是，需要改
 COPY --from=frontend-builder /src/web/dist/ /src/src/main/resources/static/
 
 RUN mvn clean package -Dmaven.test.skip=true -Dmaven.javadoc.skip=true
 
 # ============================================================
-# Stage 3: 编译 ZLMediaKit
+# Stage 3: 一体化运行镜像
+# 基于官方 ZLMediaKit ARM64 镜像（已确认支持 linux/arm64）
 # ============================================================
-FROM arm64v8/ubuntu:22.04 AS zlm-builder
+FROM zlmediakit/zlmediakit:master
 
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git cmake build-essential libssl-dev libsrtp2-dev pkg-config \
-    && rm -rf /var/lib/apt/lists/*
+USER root
 
-WORKDIR /src
-
-RUN git clone --depth=1 https://github.com/ZLMediaKit/ZLMediaKit.git
-
-WORKDIR /src/ZLMediaKit
-RUN git submodule update --init --recursive --depth=1
-
-RUN mkdir build && cd build \
-    && cmake -DCMAKE_BUILD_TYPE=Release .. \
-    && make -j$(nproc)
-
-# ============================================================
-# Stage 4: 一体化运行镜像
-# ============================================================
-FROM arm64v8/ubuntu:22.04
-
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=Asia/Shanghai
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
-
+# 安装运行时依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-21-jre-headless \
     supervisor \
@@ -69,20 +48,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /opt/wvp /opt/media /opt/polaris/redis \
+# 创建必要目录
+RUN mkdir -p /opt/wvp /opt/polaris/redis \
     /etc/nginx/templates /var/lib/mysql /var/lib/redis \
     /var/log/supervisor /var/log/nginx \
-    /opt/media/log /opt/media/bin/www/record \
     /docker-entrypoint-initdb.d
 
+# 从构建阶段复制 WVP JAR
 COPY --from=wvp-builder /src/target/*.jar /opt/wvp/wvp.jar
-COPY --from=zlm-builder /src/ZLMediaKit/release/linux/Release/ /opt/media/
 
-COPY docker/media/config.ini       /opt/media/config.ini
+# 复制配置文件（路径按你仓库实际结构调整）
 COPY docker/redis/conf/redis.conf  /opt/polaris/redis/redis.conf
 COPY docker/nginx/templates/       /etc/nginx/templates/
 COPY 数据库/2.7.4/初始化-mysql-2.7.4.sql /docker-entrypoint-initdb.d/init.sql
 
+# 复制 Supervisor 配置
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 EXPOSE 18978 8116/tcp 8116/udp \
