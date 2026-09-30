@@ -1,1 +1,8 @@
+.git
+.github
+target
+web/node_modules
+web/dist
 docker/volumes
+logs
+*.log
