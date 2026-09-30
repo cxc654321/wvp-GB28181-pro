@@ -83,7 +83,8 @@ media:
   id: polaris
   # [必须修改] ZLM 内网IP与端口
   ip: ${ZLM_HOST:127.0.0.1}
-  http-port: 80
+  # ZLM 的 HTTP 端口（播放 http-flv/ws-flv/fmp4/hls/ts/rtc、录像下载都走这个端口）
+  http-port: ${ZLM_HTTP_PORT:8083}
   # [可选] 返回流地址时的ip，置空使用 media.ip
   stream-ip: ${Stream_IP}
   # [可选] wvp在国标信令中使用的ip，此ip为摄像机可以访问到的ip， 置空使用 media.ip

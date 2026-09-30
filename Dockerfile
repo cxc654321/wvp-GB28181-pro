@@ -122,10 +122,10 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
 # 数据持久化目录
 VOLUME ["/var/lib/mysql", "/opt/media/bin/www/record"]
 
-# web(nginx) / wvp / sip / rtmp / rtsp / rtp / rtc / srt
+# web(nginx) / wvp / sip / rtmp / rtsp / rtp / zlm-http / rtc / srt
 EXPOSE 8080 18978 8116/tcp 8116/udp \
        10935/tcp 10935/udp 5540/tcp 5540/udp \
-       10000/tcp 10000/udp 8000/tcp 8000/udp 9000/udp
+       10000/tcp 10000/udp 8083 8000/tcp 8000/udp 9000/udp
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

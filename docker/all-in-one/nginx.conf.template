@@ -48,7 +48,7 @@ server {
 
     # 录像下载 -> ZLM
     location /mediaserver/api/downloadFile {
-        proxy_pass http://127.0.0.1:80/index/api/downloadFile;
+        proxy_pass http://127.0.0.1:8083/index/api/downloadFile;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -58,9 +58,24 @@ server {
         proxy_read_timeout 300s;
     }
 
+    # ZLM HTTP API（WVP 内部调用 + 录像下载/webrtc 等）-> 容器内 ZLM:8083
+    location ^~ /index/ {
+        proxy_pass http://127.0.0.1:8083;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_connect_timeout 60s;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 60s;
+    }
+
     # 播流 -> ZLM (http-flv / ws-flv / hls / ts)
     location ^~ /rtp/ {
-        proxy_pass http://127.0.0.1:80;
+        proxy_pass http://127.0.0.1:8083;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -74,7 +89,7 @@ server {
     }
 
     location ^~ /mp4_record/ {
-        proxy_pass http://127.0.0.1:80;
+        proxy_pass http://127.0.0.1:8083;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
