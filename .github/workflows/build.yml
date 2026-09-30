@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [amd64]
+        arch: [arm64]
       max-parallel: 1 # 最大并行数
     steps:
       - name: Checkout
