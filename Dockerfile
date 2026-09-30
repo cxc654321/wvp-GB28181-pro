@@ -40,10 +40,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
-RUN git clone --depth=1 https://gitee.com/xia-chu/ZLMediaKit.git \
-    && cd ZLMediaKit \
-    && git submodule update --init --recursive \
-    && mkdir build && cd build \
+
+RUN git clone --depth=1 https://github.com/ZLMediaKit/ZLMediaKit.git
+
+WORKDIR /src/ZLMediaKit
+RUN git submodule update --init --recursive --depth=1
+
+RUN mkdir build && cd build \
     && cmake -DCMAKE_BUILD_TYPE=Release .. \
     && make -j$(nproc)
 
