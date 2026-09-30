@@ -70,7 +70,7 @@ jobs:
           zip -r "$ZIP_FILE_NAME" release
           echo "ZIP_FILE_NAME=$ZIP_FILE_NAME" >> $GITHUB_ENV
 
-      - name: Release
+      - name: Release-ARM64
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
